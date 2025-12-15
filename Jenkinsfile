@@ -7,7 +7,7 @@ pipeline {
   }
 
   parameters {
-    booleanParam(name: 'APPLY', defaultValue: false, description: 'Run terraform apply + Ansible')
+    booleanParam(name: 'APPLY', defaultValue: false, description: 'Run terraform apply')
   }
 
   stages {
@@ -16,28 +16,33 @@ pipeline {
     }
 
     stage('Terraform Init & Plan') {
+      agent { docker { image 'hashicorp/terraform:1.9' } }
       steps {
         sh '''
+          terraform -version
           terraform init -input=false
           TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID" \
           TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET" \
-          terraform plan -out=plan.out
+          terraform plan -input=false -out=plan.out
         '''
       }
     }
 
     stage('Terraform Apply') {
       when { expression { return params.APPLY } }
+      agent { docker { image 'hashicorp/terraform:1.9' } }
       steps {
         sh '''
           TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID" \
           TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET" \
-          terraform apply -auto-approve plan.out
+          terraform apply -input=false -auto-approve plan.out
         '''
       }
     }
   }
 
-  options { timestamps() }
+  post {
+    always { archiveArtifacts artifacts: 'plan.out', onlyIfSuccessful: true }
+  }
 }
 
