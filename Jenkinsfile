@@ -28,7 +28,7 @@ pipeline {
 
           TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID" \
           TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET" \
-          TF_VAR_ssh_pubkey="$SSH_PUBKEY" \
+          TF_VAR_ssh_pubkey="$SSH_PUBLIC_KEY" \
           terraform plan -input=false -out=plan.out
         '''
       }
@@ -46,7 +46,7 @@ pipeline {
           set -e
           TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID" \
           TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET" \
-          TF_VAR_ssh_pubkey="$SSH_PUBKEY" \
+          TF_VAR_ssh_pubkey="$SSH_PUBLIC_KEY" \
           terraform apply -input=false -auto-approve plan.out
         '''
       }
