@@ -16,7 +16,7 @@ pipeline {
       environment {
         PM_API_TOKEN_ID     = credentials('PM_API_TOKEN_ID')
         PM_API_TOKEN_SECRET = credentials('PM_API_TOKEN_SECRET')
-        SSH_PUBLIC_KEY      = credentials('SSH_PUBLIC_KEY')  // your SSH pubkey text
+        SSH_PUBLIC_KEY      = credentials('SSH_PUBKEY')  // your SSH pubkey text
       }
       steps {
         sh '''
@@ -28,7 +28,7 @@ pipeline {
 
           TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID" \
           TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET" \
-          TF_VAR_ssh_pubkey="$SSH_PUBLIC_KEY" \
+          TF_VAR_ssh_pubkey="$SSH_PUBKEY" \
           terraform plan -input=false -out=plan.out
         '''
       }
@@ -39,14 +39,14 @@ pipeline {
       environment {
         PM_API_TOKEN_ID     = credentials('PM_API_TOKEN_ID')
         PM_API_TOKEN_SECRET = credentials('PM_API_TOKEN_SECRET')
-        SSH_PUBLIC_KEY      = credentials('SSH_PUBLIC_KEY')
+        SSH_PUBLIC_KEY      = credentials('SSH_PUBKEY')
       }
       steps {
         sh '''
           set -e
           TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID" \
           TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET" \
-          TF_VAR_ssh_pubkey="$SSH_PUBLIC_KEY" \
+          TF_VAR_ssh_pubkey="$SSH_PUBKEY" \
           terraform apply -input=false -auto-approve plan.out
         '''
       }
