@@ -16,5 +16,15 @@ variable "ssh_pubkey" {
   type        = string
 }
 
+variable "vm_name" {
+  description = "Name of the VM in Proxmox"
+  type        = string
+}
+
+variable "vmid" {
+  description = "Unique VM ID in Proxmox"
+  type        = number
+}
+
 # (Optional) add other inputs here later, e.g. vm_name, memory, etc.
 
