@@ -3,15 +3,13 @@ pipeline {
 
   options {
     timestamps()
-    ansiColor('xterm')
+    skipDefaultCheckout(true)   // we’ll checkout once explicitly
   }
 
   environment {
-    // Proxmox creds (Secret Text)
     PM_API_TOKEN_ID     = credentials('PM_API_TOKEN_ID')
     PM_API_TOKEN_SECRET = credentials('PM_API_TOKEN_SECRET')
-    // Your SSH PUBLIC key (Secret Text) for cloud-init
-    SSH_PUBLIC_KEY      = credentials('SSH_PUBKEY')
+    SSH_PUBLIC_KEY      = credentials('SSH_PUBKEY')   // your pub key (Secret Text)
   }
 
   parameters {
@@ -52,25 +50,19 @@ pipeline {
       }
     }
 
-    // ----- OPTIONAL: run Ansible after the VM is created -----
+    // OPTIONAL: only runs if inventory/site.yml exist
     stage('Configure with Ansible') {
       when { expression { return params.APPLY } }
-      environment {
-        ANSIBLE_HOST_KEY_CHECKING = 'False'
-      }
+      environment { ANSIBLE_HOST_KEY_CHECKING = 'False' }
       steps {
-        // only run if you actually have these files in the repo
         sh '''
-          if [ -f "inventory.ini" ] && [ -f "site.yml" ]; then
-            echo "Running Ansible…"
-          else
-            echo "No inventory.ini or site.yml found — skipping Ansible stage."
+          if [ ! -f inventory.ini ] || [ ! -f site.yml ]; then
+            echo "No inventory.ini or site.yml found — skipping Ansible."
             exit 0
           fi
         '''
         sshagent(credentials: ['ansible_ssh']) {
           sh '''
-            # Install ansible if it's not already in the Jenkins container
             if ! command -v ansible >/dev/null 2>&1; then
               echo "Installing Ansible in Jenkins container…"
               python3 -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
@@ -82,16 +74,11 @@ pipeline {
         }
       }
     }
-    // ---------------------------------------------------------
   }
 
   post {
-    success {
-      archiveArtifacts artifacts: 'plan.out', onlyIfSuccessful: true
-    }
-    failure {
-      echo 'Build failed. Check the console log for errors.'
-    }
+    success { archiveArtifacts artifacts: 'plan.out', onlyIfSuccessful: true }
+    failure { echo 'Build failed — check the console log above.' }
   }
 }
 
