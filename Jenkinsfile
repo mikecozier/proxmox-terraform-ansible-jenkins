@@ -38,6 +38,7 @@ pipeline {
           echo "Creating VM: ${VM_NAME_FINAL} (VMID: ${VMID})"
           echo "Specs: ${CORES} cores, ${MEMORY} MB RAM, ${DISK_SIZE} disk"
 
+          # Throwaway state so runs never replace prior VMs
           STATE="/tmp/terraform-${BUILD_NUMBER}.tfstate"
 
           terraform -version
@@ -58,14 +59,24 @@ pipeline {
             -auto-approve \
             -state="$STATE"
 
-          # Grab the VM IP from outputs.tf (output "vm_ip")
-          VM_IP="$(terraform output -raw vm_ip)"
+          # Wait a bit for DHCP + guest agent/IP reporting (adjust if needed)
+          VM_IP=""
+          for i in $(seq 1 30); do
+            VM_IP="$(terraform output -raw -state="$STATE" vm_ip 2>/dev/null || true)"
+            if [ -n "$VM_IP" ]; then
+              break
+            fi
+            echo "Waiting for vm_ip... (${i}/30)"
+            sleep 5
+          done
+
           if [ -z "$VM_IP" ]; then
-            echo "ERROR: terraform output vm_ip is empty. Check guest agent / define_connection_info."
+            echo "ERROR: vm_ip output is empty. (Guest agent not ready / no IP reported.)"
+            echo "Tip: ensure qemu-guest-agent is installed+enabled in the template and agent=1 in Terraform."
             exit 1
           fi
 
-          echo "VM_IP=$VM_IP" > vm_ip.env
+          echo "VM_IP=$VM_IP" | tee vm_ip.env
           echo "VM created at IP: $VM_IP"
 
           # Generate Ansible inventory in the workspace
@@ -73,6 +84,10 @@ pipeline {
 [all]
 $VM_IP ansible_user=mirage
 EOF
+
+          echo "----- inventory.ini -----"
+          cat inventory.ini
+          echo "-------------------------"
         '''
       }
     }
