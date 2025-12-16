@@ -37,7 +37,8 @@ resource "proxmox_vm_qemu" "vm-instance" {
       size = "50G" 
       storage = "local" 
       slot = "scsi0" 
-      discard = true }    
+      discard = true 
+}    
  
 # Explicitly define the Cloud-Init drive to guarantee it exists.
     disk {
