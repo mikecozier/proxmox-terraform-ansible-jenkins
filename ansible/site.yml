@@ -1,23 +1,9 @@
-cat > ansible/site.yml <<'EOF'
+---
 - name: Baseline setup for new Proxmox VMs
   hosts: proxmox_vms
   become: true
-  gather_facts: true
 
   tasks:
-    - name: Wait for SSH to be ready
-      wait_for_connection:
-        timeout: 300
-
-    - name: Wait for cloud-init to finish (if present)
-      shell: |
-        if command -v cloud-init >/dev/null 2>&1; then
-          cloud-init status --wait
-        else
-          echo "cloud-init not installed"
-        fi
-      changed_when: false
-
     - name: Update apt cache
       apt:
         update_cache: true
@@ -26,19 +12,15 @@ cat > ansible/site.yml <<'EOF'
     - name: Install baseline packages
       apt:
         name:
-          - qemu-guest-agent
           - curl
+          - vim
           - git
-          - unzip
-          - ca-certificates
-          - python3
-          - python3-apt
+          - qemu-guest-agent
         state: present
 
     - name: Ensure qemu-guest-agent is enabled and running
-      systemd:
+      service:
         name: qemu-guest-agent
         enabled: true
         state: started
-EOF
 
