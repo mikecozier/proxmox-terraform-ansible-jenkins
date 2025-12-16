@@ -96,7 +96,7 @@ EOF
       when { expression { return params.APPLY } }
 
       steps {
-        sshagent(credentials: ['jenkins_ssh_key']) {
+        sshagent(credentials: ['ansible_ssh']) {
           sh '''
             set -euo pipefail
 
