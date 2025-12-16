@@ -1,5 +1,5 @@
 terraform {
-    required_providers {
+      required_providers {
         proxmox = {
             source = "telmate/proxmox"
               version = "= 3.0.2-rc06"
@@ -9,8 +9,8 @@ terraform {
 
 provider "proxmox" {
     pm_api_url          = "https://192.168.1.100:8006/api2/json"
-    pm_api_token_id     = "terraform@pve!Terraform"
-    pm_api_token_secret = "75259e0f-e458-4f1e-b42d-5c1b020a9ae0"
+    pm_api_token_id     = var.pm_api_token_id
+    pm_api_token_secret = var.pm_api_token_secret
     pm_tls_insecure     = true
 }
 
@@ -64,7 +64,7 @@ resource "proxmox_vm_qemu" "vm-instance" {
     # --- Cloud-Init (ADD THESE) ---
     agent     = 1
     ciuser    = "mirage"
-    sshkeys = var.ssh_pubkey    
+    sshkeys   = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJuGg8kVLMe2shCKHaSmYZmFwnIXakFE7UOO3tli/YE7 mirage@ansible"   
     ipconfig0 = "ip=dhcp"
 
     # Optional: make apply finish fast (Ansible can wait for SSH)
