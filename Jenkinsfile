@@ -36,6 +36,9 @@ pipeline {
 
           STATE="/tmp/terraform-${BUILD_NUMBER}.tfstate"
 
+          # Avoid any accidental use of workspace state from previous runs
+          rm -rf .terraform terraform.tfstate terraform.tfstate.backup || true
+
           terraform init -input=false
 
           TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID" \
@@ -50,6 +53,9 @@ pipeline {
             -input=false \
             -auto-approve \
             -state="$STATE"
+
+          echo "=== Refreshing state to populate outputs (guest agent IP) ==="
+          terraform apply -refresh-only -auto-approve -input=false -state="$STATE" || true
 
           echo "=== DEBUG: list files ==="
           ls -lah
@@ -72,6 +78,9 @@ pipeline {
 
           VM_IP=""
           for i in $(seq 1 60); do
+            # Refresh each attempt so Terraform re-reads guest agent / IP
+            terraform apply -refresh-only -auto-approve -input=false -state="$STATE" >/dev/null 2>&1 || true
+
             CANDIDATE=$(terraform output -state="$STATE" -raw vm_ipv4 2>/dev/null || true)
 
             if echo "$CANDIDATE" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$'; then
