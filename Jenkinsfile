@@ -12,8 +12,8 @@ pipeline {
 
   environment {
     TF_IN_AUTOMATION = 'true'
-    PVE_URL   = 'https://192.168.1.100:8006'
-    PVE_NODE  = 'proxmox'
+    PVE_URL  = 'https://192.168.1.100:8006'
+    PVE_NODE = 'proxmox'
   }
 
   stages {
@@ -22,7 +22,7 @@ pipeline {
       when { expression { params.APPLY } }
 
       environment {
-        PM_API_TOKEN_ID     = credentials('PM_API_TOKEN_ID')      // e.g. terraform@pve!Terraform
+        PM_API_TOKEN_ID     = credentials('PM_API_TOKEN_ID')
         PM_API_TOKEN_SECRET = credentials('PM_API_TOKEN_SECRET')
         SSH_PUBLIC_KEY      = credentials('SSH_PUBKEY')
       }
@@ -71,7 +71,7 @@ pipeline {
           sh '''
             set -euo pipefail
 
-            # Tools (jenkins/jenkins:lts is Debian-based)
+            # Ensure tools exist in the Jenkins container
             if ! command -v jq >/dev/null 2>&1; then
               apt-get update -y
               apt-get install -y jq curl
@@ -83,20 +83,19 @@ pipeline {
             echo "Waiting for guest-agent IPv4 via Proxmox API (VMID=$VMID)..."
 
             VM_IP=""
+            RESP=""
+
             for i in $(seq 1 60); do
-              # QEMU guest agent network interfaces
               RESP=$(curl -sk -H "Authorization: $AUTH" \
                 "${PVE_URL}/api2/json/nodes/${PVE_NODE}/qemu/${VMID}/agent/network-get-interfaces" || true)
 
-              # Pull first non-loopback IPv4
               VM_IP=$(echo "$RESP" | jq -r '
-                .data.result[]
-                | .["ip-addresses"][]
-                | select(.["ip-address-type"]=="ipv4")
-                | .["ip-address"]
-              ' 2>/dev/null | grep -Ev '^(127\.|169\.254\.)' | head -n 1 || true)
+                .data.result[]? | .["ip-addresses"][]? |
+                select(.["ip-address-type"]=="ipv4") |
+                .["ip-address"]
+              ' 2>/dev/null | grep -Ev '^(127[.]|169[.]254[.])' | head -n 1 || true)
 
-              if echo "$VM_IP" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+              if echo "$VM_IP" | grep -Eq '^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$'; then
                 echo "Found VM IP: $VM_IP"
                 break
               fi
@@ -107,7 +106,7 @@ pipeline {
 
             if [ -z "$VM_IP" ]; then
               echo "ERROR: Could not retrieve VM IP from guest agent API."
-              echo "Last response:"
+              echo "Last response (truncated):"
               echo "$RESP" | head -c 2000 || true
               exit 1
             fi
