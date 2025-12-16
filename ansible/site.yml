@@ -13,11 +13,10 @@
     vault_valid_principals: "mirage"
     vault_ttl: "168h"
 
-    # Vault unseal keys (pulled from Jenkins environment variables)
-    vault_unseal_keys:
-      - "{{ lookup('env', 'VAULT_UNSEAL_KEY_1') }}"
-      - "{{ lookup('env', 'VAULT_UNSEAL_KEY_2') }}"
-      - "{{ lookup('env', 'VAULT_UNSEAL_KEY_3') }}"
+    # Unseal keys from Jenkins env
+    vault_unseal_key_1: "{{ lookup('env', 'VAULT_UNSEAL_KEY_1') | default('', true) }}"
+    vault_unseal_key_2: "{{ lookup('env', 'VAULT_UNSEAL_KEY_2') | default('', true) }}"
+    vault_unseal_key_3: "{{ lookup('env', 'VAULT_UNSEAL_KEY_3') | default('', true) }}"
 
     # --- VM SSH key + cert paths ---
     vm_user: "mirage"
@@ -27,22 +26,25 @@
 
     # Baseline packages
     baseline_packages:
+      - sudo
       - qemu-guest-agent
       - curl
       - unzip
       - jq
       - openssh-client
 
-  tasks:
-    # --- Vault unseal logic (runs in Jenkins container) ---
+  pre_tasks:
+    # ---------------------------------------
+    # Vault: validate + unseal (Jenkins side)
+    # ---------------------------------------
     - name: Fail fast if any unseal key env var is missing
       delegate_to: localhost
       become: false
       ansible.builtin.assert:
         that:
-          - vault_unseal_keys[0] | length > 0
-          - vault_unseal_keys[1] | length > 0
-          - vault_unseal_keys[2] | length > 0
+          - vault_unseal_key_1 | length > 0
+          - vault_unseal_key_2 | length > 0
+          - vault_unseal_key_3 | length > 0
         fail_msg: "Missing one or more VAULT_UNSEAL_KEY_1/2/3 environment variables in Jenkins."
 
     - name: Check if Vault is sealed
@@ -55,42 +57,84 @@
         status_code: 200
       register: vault_seal_status
 
-    - name: Unseal Vault using provided keys (only if sealed)
+    - name: Unseal Vault with key 1 (if sealed)
       delegate_to: localhost
       become: false
       when: vault_seal_status.json.sealed | bool
-      block:
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/sys/unseal"
+        method: POST
+        body_format: json
+        body:
+          key: "{{ vault_unseal_key_1 }}"
+        status_code: [200, 400]
+      no_log: true
 
-        - name: Submit unseal keys until Vault is unsealed
-          ansible.builtin.uri:
-            url: "{{ vault_addr }}/v1/sys/unseal"
-            method: POST
-            body_format: json
-            body:
-              key: "{{ item }}"
-            status_code: [200, 400]
-            return_content: true
-          loop: "{{ vault_unseal_keys }}"
-          loop_control:
-            label: "unseal_key_{{ ansible_loop.index }}"
-          register: unseal_results
-          no_log: true
-          failed_when: false
+    - name: Re-check seal status
+      delegate_to: localhost
+      become: false
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/sys/seal-status"
+        method: GET
+        return_content: true
+        status_code: 200
+      register: vault_seal_status
 
-        - name: Re-check seal status after unseal attempts
-          ansible.builtin.uri:
-            url: "{{ vault_addr }}/v1/sys/seal-status"
-            method: GET
-            return_content: true
-            status_code: 200
-          register: vault_seal_status_after
+    - name: Unseal Vault with key 2 (if still sealed)
+      delegate_to: localhost
+      become: false
+      when: vault_seal_status.json.sealed | bool
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/sys/unseal"
+        method: POST
+        body_format: json
+        body:
+          key: "{{ vault_unseal_key_2 }}"
+        status_code: [200, 400]
+      no_log: true
 
-        - name: Fail if Vault is still sealed
-          ansible.builtin.fail:
-            msg: "Vault is still sealed after applying all unseal keys."
-          when: vault_seal_status_after.json.sealed | bool
+    - name: Re-check seal status
+      delegate_to: localhost
+      become: false
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/sys/seal-status"
+        method: GET
+        return_content: true
+        status_code: 200
+      register: vault_seal_status
 
-    # --- VM baseline tasks (run on the VM) ---
+    - name: Unseal Vault with key 3 (if still sealed)
+      delegate_to: localhost
+      become: false
+      when: vault_seal_status.json.sealed | bool
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/sys/unseal"
+        method: POST
+        body_format: json
+        body:
+          key: "{{ vault_unseal_key_3 }}"
+        status_code: [200, 400]
+      no_log: true
+
+    - name: Final seal status check
+      delegate_to: localhost
+      become: false
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/sys/seal-status"
+        method: GET
+        return_content: true
+        status_code: 200
+      register: vault_seal_status
+
+    - name: Fail if Vault is still sealed
+      ansible.builtin.fail:
+        msg: "Vault is still sealed after all unseal keys were submitted."
+      when: vault_seal_status.json.sealed | bool
+
+  tasks:
+    # -------------------------
+    # VM baseline (runs on VM)
+    # -------------------------
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: true
@@ -127,7 +171,9 @@
         src: "{{ ssh_pub_path }}"
       register: remote_pub
 
-    # --- Vault signing (runs in Jenkins container) ---
+    # -----------------------------------------
+    # Vault signing (runs in Jenkins container)
+    # -----------------------------------------
     - name: AppRole login to Vault (from Jenkins container)
       delegate_to: localhost
       become: false
