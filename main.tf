@@ -64,7 +64,7 @@ resource "proxmox_vm_qemu" "vm-instance" {
     # --- Cloud-Init (ADD THESE) ---
     agent     = 1
     ciuser    = "mirage"
-    sshkeys = var.ssh_public_key    
+    sshkeys = var.ssh_pubkey    
     ipconfig0 = "ip=dhcp"
 
     # Optional: make apply finish fast (Ansible can wait for SSH)

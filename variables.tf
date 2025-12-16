@@ -12,7 +12,7 @@ variable "pm_api_token_secret" {
 }
 
 # SSH public key text
-variable "ssh_public_key" {
+variable "ssh_pubkey" {
   description = "SSH public key for cloud-init"
   type        = string
 }
