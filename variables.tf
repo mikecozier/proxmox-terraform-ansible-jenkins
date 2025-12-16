@@ -11,7 +11,6 @@ variable "pm_api_token_secret" {
   sensitive   = true
 }
 
-# SSH public key text
 variable "ssh_pubkey" {
   description = "SSH public key for cloud-init"
   type        = string
