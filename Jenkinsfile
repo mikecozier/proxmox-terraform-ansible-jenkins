@@ -13,6 +13,11 @@ pipeline {
       defaultValue: 'vm',
       description: 'VM name prefix'
     )
+    string(
+      name: 'MEMORY',
+      defaultValue: '4096',
+      description: 'MEMORY in MB'
+    )
   }
 
   environment {
@@ -54,6 +59,7 @@ pipeline {
           TF_VAR_ssh_pubkey="$SSH_PUBLIC_KEY" \
           TF_VAR_vm_name="$VM_NAME_FINAL" \
           TF_VAR_vmid="$VMID" \
+          TF_VAR_memory="$MEMORY" \
           terraform apply \
             -input=false \
             -auto-approve \

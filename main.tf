@@ -20,7 +20,7 @@ resource "proxmox_vm_qemu" "vm-instance" {
     target_node         = "proxmox"
     clone               = "terraform-template"
     full_clone          = true    
-    memory              = 4096
+    memory              = var.memory
     qemu_os             = "l26"
     cpu {
       sockets           = 1

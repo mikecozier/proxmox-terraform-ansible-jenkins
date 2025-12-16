@@ -26,5 +26,11 @@ variable "vmid" {
   type        = number
 }
 
+variable "memory" {
+  description = "VM memory in MB"
+  type        = number
+  default     = 4096
+}
+
 # (Optional) add other inputs here later, e.g. vm_name, memory, etc.
 
