@@ -1,26 +1,106 @@
 ---
-- name: Baseline setup for new Proxmox VMs
+- name: Baseline + Vault-signed SSH cert for new Proxmox VMs
   hosts: proxmox_vms
   become: true
+  gather_facts: true
+
+  vars:
+    # --- Vault (runs on Jenkins container via delegate_to: localhost) ---
+    vault_addr: "http://192.168.1.23:8200"
+    vault_role_id_file: "/etc/vault/approle/role_id"
+    vault_secret_id_file: "/etc/vault/approle/secret_id"
+    vault_sign_path: "ssh/sign/mirage"
+    vault_valid_principals: "mirage"
+    vault_ttl: "168h"
+
+    # --- VM SSH key + cert paths ---
+    vm_user: "mirage"
+    ssh_key_path: "/home/mirage/.ssh/id_ed25519"
+    ssh_pub_path: "/home/mirage/.ssh/id_ed25519.pub"
+    ssh_cert_path: "/home/mirage/.ssh/id_ed25519-cert.pub"
+
+    # Baseline packages
+    baseline_packages:
+      - qemu-guest-agent
+      - curl
+      - unzip
+      - jq
+      - openssh-client
 
   tasks:
     - name: Update apt cache
-      apt:
+      ansible.builtin.apt:
         update_cache: true
         cache_valid_time: 3600
 
     - name: Install baseline packages
-      apt:
-        name:
-          - curl
-          - vim
-          - git
-          - qemu-guest-agent
+      ansible.builtin.apt:
+        name: "{{ baseline_packages }}"
         state: present
 
     - name: Ensure qemu-guest-agent is enabled and running
-      service:
+      ansible.builtin.service:
         name: qemu-guest-agent
         enabled: true
         state: started
+
+    - name: Ensure ~/.ssh exists for {{ vm_user }}
+      ansible.builtin.file:
+        path: "/home/{{ vm_user }}/.ssh"
+        state: directory
+        owner: "{{ vm_user }}"
+        group: "{{ vm_user }}"
+        mode: "0700"
+
+    - name: Ensure ed25519 keypair exists for {{ vm_user }}
+      become_user: "{{ vm_user }}"
+      community.crypto.openssh_keypair:
+        path: "{{ ssh_key_path }}"
+        type: ed25519
+        mode: "0600"
+      register: keypair_result
+
+    - name: Read remote public key
+      ansible.builtin.slurp:
+        src: "{{ ssh_pub_path }}"
+      register: remote_pub
+
+    - name: AppRole login to Vault (from Jenkins container)
+      delegate_to: localhost
+      become: false
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/auth/approle/login"
+        method: POST
+        body_format: json
+        body:
+          role_id: "{{ lookup('file', vault_role_id_file) | trim }}"
+          secret_id: "{{ lookup('file', vault_secret_id_file) | trim }}"
+        return_content: true
+        status_code: 200
+      register: vault_login
+
+    - name: Sign this host's key via Vault (from Jenkins container)
+      delegate_to: localhost
+      become: false
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/{{ vault_sign_path }}"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ vault_login.json.auth.client_token }}"
+        body_format: json
+        body:
+          public_key: "{{ remote_pub.content | b64decode | trim }}"
+          valid_principals: "{{ vault_valid_principals }}"
+          ttl: "{{ vault_ttl }}"
+        return_content: true
+        status_code: 200
+      register: signed
+
+    - name: Install signed cert on VM
+      ansible.builtin.copy:
+        content: "{{ signed.json.data.signed_key }}"
+        dest: "{{ ssh_cert_path }}"
+        owner: "{{ vm_user }}"
+        group: "{{ vm_user }}"
+        mode: "0644"
 
