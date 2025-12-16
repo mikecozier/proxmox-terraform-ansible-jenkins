@@ -8,6 +8,7 @@ services:
       - "50000:50000"
     volumes:
       - jenkins_home:/var/jenkins_home
+      - /etc/vault/approle:/etc/vault/approle:ro
 volumes:
   jenkins_home:
 
