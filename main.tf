@@ -30,7 +30,6 @@ resource "proxmox_vm_qemu" "vm-instance" {
      
   # Controller + boot order (stabilizes readbacks)
     scsihw = "virtio-scsi-pci"
-    boot   = "order=scsi0;net0"
     
  # Explicitly define the Cloud-Init drive to guarantee it exists.
     disk {
