@@ -1,15 +1,13 @@
 services:
   jenkins:
-    image: jenkins/jenkins:lts
     build: .
+    image: mikecozier/jenkins-terraform:latest
     restart: unless-stopped
     ports:
-      - "8080:8080"   # web
-      - "50000:50000" # inbound agents
+      - "8080:8080"
+      - "50000:50000"
     volumes:
       - jenkins_home:/var/jenkins_home
-      # Optional: give Jenkins access to host docker (so pipelines can "docker build")
-      # - /var/run/docker.sock:/var/run/docker.sock
 volumes:
   jenkins_home:
 
