@@ -13,27 +13,26 @@ pipeline {
       defaultValue: 'vm',
       description: 'VM name prefix'
     )
-
+    
     // Dropdown: Memory
     choice(
       name: 'MEMORY',
-      defaultValue: ['2048', '4096', '8192', '16384'],
-      description: 'MEMORY in MB'
+      choices: "2048\n4096\n8192\n16384",
+      description: 'Memory in MB'
     )
 
-    // Dropdown: CPU cores
     choice(
       name: 'CORES',
-      choices: ['1', '2', '4', '6', '8'],
+      choices: "1\n2\n4\n6\n8",
       description: 'Number of CPU cores'
     )
 
-    // Dropdown: Disk size
     choice(
       name: 'DISK_SIZE',
-      choices: ['20G', '50G', '100G', '200G'],
+      choices: "20G\n50G\n100G\n200G",
       description: 'Disk size'
     )
+
   }
 
   environment {
