@@ -32,5 +32,15 @@ variable "memory" {
   default     = 4096
 }
 
-# (Optional) add other inputs here later, e.g. vm_name, memory, etc.
+variable "cores" {
+  description = "Number of CPU cores"
+  type        = number
+  default     = 2
+}
+
+variable "disk_size" {
+  description = "Disk size (e.g. 20G, 50G, 100G)"
+  type        = string
+  default     = "50G"
+}
 

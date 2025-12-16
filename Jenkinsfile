@@ -13,10 +13,26 @@ pipeline {
       defaultValue: 'vm',
       description: 'VM name prefix'
     )
-    string(
+
+    // Dropdown: Memory
+    choice(
       name: 'MEMORY',
-      defaultValue: '4096',
-      description: 'MEMORY in MB (2048, 4096, 8192, 16384)'
+      defaultValue: ['2048', '4096', '8192', '16384'],
+      description: 'MEMORY in MB'
+    )
+
+    // Dropdown: CPU cores
+    choice(
+      name: 'CORES',
+      choices: ['1', '2', '4', '6', '8'],
+      description: 'Number of CPU cores'
+    )
+
+    // Dropdown: Disk size
+    choice(
+      name: 'DISK_SIZE',
+      choices: ['20G', '50G', '100G', '200G'],
+      description: 'Disk size'
     )
   }
 
@@ -46,6 +62,7 @@ pipeline {
           VM_NAME_FINAL="${VM_NAME}-${BUILD_NUMBER}"
 
           echo "Creating VM: ${VM_NAME_FINAL} (VMID: ${VMID})"
+          echo "Specs: ${CORES} cores, ${MEMORY} MB RAM, ${DISK_SIZE} disk"
 
           # ----------------------------------------------------
           # Use a THROWAWAY state file (no replacements ever)
@@ -60,6 +77,8 @@ pipeline {
           TF_VAR_vm_name="$VM_NAME_FINAL" \
           TF_VAR_vmid="$VMID" \
           TF_VAR_memory="$MEMORY" \
+          TF_VAR_cores="$CORES" \
+          TF_VAR_disk_size="$DISK_SIZE" \
           terraform apply \
             -input=false \
             -auto-approve \
@@ -70,12 +89,8 @@ pipeline {
   }
 
   post {
-    success {
-      echo 'VM successfully created.'
-    }
-    failure {
-      echo 'VM creation failed — check logs.'
-    }
+    success { echo 'VM successfully created.' }
+    failure { echo 'VM creation failed — check logs.' }
   }
 }
 

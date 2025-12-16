@@ -24,7 +24,7 @@ resource "proxmox_vm_qemu" "vm-instance" {
     qemu_os             = "l26"
     cpu {
       sockets           = 1
-      cores             = 2
+      cores             = var.cores
       type              = "host"
 }
      
@@ -34,7 +34,7 @@ resource "proxmox_vm_qemu" "vm-instance" {
     
     disk {
         type            = "disk"
-        size            = "50G"
+        size            = var.disk_size
         storage         = "local"
         slot            = "scsi0"
         discard         = true
