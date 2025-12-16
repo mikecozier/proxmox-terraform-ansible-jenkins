@@ -4,11 +4,9 @@ pipeline {
 
   parameters {
     string(name: 'VM_NAME', defaultValue: 'vm', description: 'VM name prefix')
-
     choice(name: 'MEMORY', choices: ['2048', '4096', '8192', '16384'], description: 'Memory in MB')
     choice(name: 'CORES', choices: ['1', '2', '4', '6', '8'], description: 'Number of CPU cores')
     choice(name: 'DISK_SIZE', choices: ['20G', '50G', '100G', '200G'], description: 'Disk size')
-
     booleanParam(name: 'APPLY', defaultValue: true, description: 'Create VM')
   }
 
@@ -52,6 +50,12 @@ pipeline {
             -input=false \
             -auto-approve \
             -state="$STATE"
+
+          echo "=== DEBUG: list files ==="
+          ls -lah
+
+          echo "=== DEBUG: terraform output (from STATE) ==="
+          terraform output -state="$STATE" || true
         '''
       }
     }
@@ -64,20 +68,26 @@ pipeline {
           set -euo pipefail
           STATE="/tmp/terraform-${BUILD_NUMBER}.tfstate"
 
-          # Wait for guest agent / cloud-init to report IP
+          echo "Waiting for vm_ipv4 to become a real IPv4 address..."
+
           VM_IP=""
           for i in $(seq 1 60); do
-            VM_IP=$(terraform output -state="$STATE" -raw vm_ipv4 2>/dev/null || true)
-            if [ -n "$VM_IP" ]; then
+            CANDIDATE=$(terraform output -state="$STATE" -raw vm_ipv4 2>/dev/null || true)
+
+            if echo "$CANDIDATE" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$'; then
+              VM_IP="$CANDIDATE"
               echo "VM_IP=$VM_IP"
               break
             fi
-            echo "Waiting for VM IP... ($i/60)"
+
+            echo "Attempt $i/60: not ready (got: '$CANDIDATE')"
             sleep 5
           done
 
           if [ -z "$VM_IP" ]; then
-            echo "ERROR: vm_ipv4 is empty. Ensure qemu-guest-agent is installed/running in template."
+            echo "ERROR: Could not get vm_ipv4 from Terraform state."
+            echo "DEBUG: terraform output dump:"
+            terraform output -state="$STATE" || true
             exit 1
           fi
 

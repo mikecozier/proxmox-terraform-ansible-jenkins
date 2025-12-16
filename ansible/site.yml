@@ -1,4 +1,3 @@
-mkdir -p ansible
 cat > ansible/site.yml <<'EOF'
 - name: Baseline setup for new Proxmox VMs
   hosts: proxmox_vms
@@ -41,30 +40,5 @@ cat > ansible/site.yml <<'EOF'
         name: qemu-guest-agent
         enabled: true
         state: started
-
-    - name: Ensure OpenSSH server is enabled and running
-      systemd:
-        name: ssh
-        enabled: true
-        state: started
-
-    - name: Create a standard admin group (optional)
-      group:
-        name: admin
-        state: present
-
-    - name: Add mirage to admin group (optional)
-      user:
-        name: mirage
-        groups: admin
-        append: true
-
-    - name: Passwordless sudo for admin group (recommended for CI)
-      copy:
-        dest: /etc/sudoers.d/90-admin-nopasswd
-        content: "%admin ALL=(ALL) NOPASSWD:ALL\n"
-        owner: root
-        group: root
-        mode: "0440"
 EOF
 
