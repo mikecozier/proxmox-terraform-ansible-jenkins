@@ -16,7 +16,7 @@ pipeline {
     string(
       name: 'MEMORY',
       defaultValue: '4096',
-      description: 'MEMORY in MB'
+      description: 'MEMORY in MB (2048, 4096, 8192, 16384)'
     )
   }
 
