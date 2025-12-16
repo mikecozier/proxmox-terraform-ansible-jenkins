@@ -3,28 +3,22 @@ pipeline {
   options { timestamps() }
 
   parameters {
-    booleanParam(
-      name: 'APPLY',
-      defaultValue: true,
-      description: 'Create VM'
-    )
     string(
       name: 'VM_NAME',
       defaultValue: 'vm',
       description: 'VM name prefix'
     )
     
-    // Dropdown: Memory
-    choice(
-      name: 'MEMORY',
-      choices: "2048\n4096\n8192\n16384",
-      description: 'Memory in MB'
-    )
-
     choice(
       name: 'CORES',
       choices: "1\n2\n4\n6\n8",
       description: 'Number of CPU cores'
+    )
+
+    choice(
+      name: 'MEMORY',
+      choices: "2048\n4096\n8192\n16384",
+      description: 'Memory in MB'
     )
 
     choice(
@@ -33,6 +27,11 @@ pipeline {
       description: 'Disk size'
     )
 
+    booleanParam(
+      name: 'APPLY',
+      defaultValue: true,
+      description: 'Create VM'
+    )
   }
 
   environment {
