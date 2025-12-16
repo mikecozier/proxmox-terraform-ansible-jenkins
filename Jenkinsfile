@@ -30,35 +30,28 @@ pipeline {
 
           VMID=$((200 + BUILD_NUMBER % 100))
           VM_NAME_FINAL="${VM_NAME}-${BUILD_NUMBER}"
+          STATE="/tmp/terraform-${BUILD_NUMBER}.tfstate"
 
           echo "Creating VM: ${VM_NAME_FINAL} (VMID: ${VMID})"
           echo "Specs: ${CORES} cores, ${MEMORY} MB RAM, ${DISK_SIZE} disk"
 
-          STATE="/tmp/terraform-${BUILD_NUMBER}.tfstate"
-
-          # Avoid any accidental use of workspace state from previous runs
           rm -rf .terraform terraform.tfstate terraform.tfstate.backup || true
-
           terraform init -input=false
 
-          TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID" \
-          TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET" \
-          TF_VAR_ssh_pubkey="$SSH_PUBLIC_KEY" \
-          TF_VAR_vm_name="$VM_NAME_FINAL" \
-          TF_VAR_vmid="$VMID" \
-          TF_VAR_memory="$MEMORY" \
-          TF_VAR_cores="$CORES" \
-          TF_VAR_disk_size="$DISK_SIZE" \
-          terraform apply \
-            -input=false \
-            -auto-approve \
-            -state="$STATE"
+          # Export TF_VARs ONCE so all subsequent terraform commands see them
+          export TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID"
+          export TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET"
+          export TF_VAR_ssh_pubkey="$SSH_PUBLIC_KEY"
+          export TF_VAR_vm_name="$VM_NAME_FINAL"
+          export TF_VAR_vmid="$VMID"
+          export TF_VAR_memory="$MEMORY"
+          export TF_VAR_cores="$CORES"
+          export TF_VAR_disk_size="$DISK_SIZE"
+
+          terraform apply -input=false -auto-approve -state="$STATE"
 
           echo "=== Refreshing state to populate outputs (guest agent IP) ==="
-          terraform apply -refresh-only -auto-approve -input=false -state="$STATE" || true
-
-          echo "=== DEBUG: list files ==="
-          ls -lah
+          terraform apply -refresh-only -input=false -auto-approve -state="$STATE" || true
 
           echo "=== DEBUG: terraform output (from STATE) ==="
           terraform output -state="$STATE" || true
@@ -69,18 +62,35 @@ pipeline {
     stage('Generate Inventory (VM IP)') {
       when { expression { return params.APPLY } }
 
+      environment {
+        PM_API_TOKEN_ID     = credentials('PM_API_TOKEN_ID')
+        PM_API_TOKEN_SECRET = credentials('PM_API_TOKEN_SECRET')
+        SSH_PUBLIC_KEY      = credentials('SSH_PUBKEY')
+      }
+
       steps {
         sh '''
           set -euo pipefail
+
+          VMID=$((200 + BUILD_NUMBER % 100))
+          VM_NAME_FINAL="${VM_NAME}-${BUILD_NUMBER}"
           STATE="/tmp/terraform-${BUILD_NUMBER}.tfstate"
+
+          # Same TF_VAR exports here too, since this stage is a NEW shell
+          export TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID"
+          export TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET"
+          export TF_VAR_ssh_pubkey="$SSH_PUBLIC_KEY"
+          export TF_VAR_vm_name="$VM_NAME_FINAL"
+          export TF_VAR_vmid="$VMID"
+          export TF_VAR_memory="$MEMORY"
+          export TF_VAR_cores="$CORES"
+          export TF_VAR_disk_size="$DISK_SIZE"
 
           echo "Waiting for vm_ipv4 to become a real IPv4 address..."
 
           VM_IP=""
           for i in $(seq 1 60); do
-            # Refresh each attempt so Terraform re-reads guest agent / IP
             terraform apply -refresh-only -auto-approve -input=false -state="$STATE" >/dev/null 2>&1 || true
-
             CANDIDATE=$(terraform output -state="$STATE" -raw vm_ipv4 2>/dev/null || true)
 
             if echo "$CANDIDATE" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$'; then
@@ -95,7 +105,6 @@ pipeline {
 
           if [ -z "$VM_IP" ]; then
             echo "ERROR: Could not get vm_ipv4 from Terraform state."
-            echo "DEBUG: terraform output dump:"
             terraform output -state="$STATE" || true
             exit 1
           fi
