@@ -12,6 +12,8 @@ pipeline {
 
   environment {
     TF_IN_AUTOMATION = 'true'
+    PVE_URL   = 'https://192.168.1.100:8006'
+    PVE_NODE  = 'proxmox'
   }
 
   stages {
@@ -20,7 +22,7 @@ pipeline {
       when { expression { params.APPLY } }
 
       environment {
-        PM_API_TOKEN_ID     = credentials('PM_API_TOKEN_ID')
+        PM_API_TOKEN_ID     = credentials('PM_API_TOKEN_ID')      // e.g. terraform@pve!Terraform
         PM_API_TOKEN_SECRET = credentials('PM_API_TOKEN_SECRET')
         SSH_PUBLIC_KEY      = credentials('SSH_PUBKEY')
       }
@@ -30,14 +32,11 @@ pipeline {
           sh '''
             set -euo pipefail
 
-            echo "Workspace: $(pwd)"
-            ls -al
-
-            test -f outputs.tf || { echo "ERROR: outputs.tf missing"; exit 1; }
-
             VMID=$((200 + BUILD_NUMBER % 100))
             VM_NAME_FINAL="${VM_NAME}-${BUILD_NUMBER}"
             STATE="/tmp/terraform-${BUILD_NUMBER}.tfstate"
+
+            echo "Creating VM: $VM_NAME_FINAL (VMID=$VMID)"
 
             terraform init -input=false
 
@@ -52,49 +51,73 @@ pipeline {
 
             terraform apply -auto-approve -input=false -state="$STATE"
 
-            echo "Waiting for QEMU guest agent IP..."
+            echo "$VMID" > .vmid
+            echo "$STATE" > .tfstate_path
           '''
         }
       }
     }
 
-    stage('Wait for VM IP + Generate Inventory') {
+    stage('Get VM IP from Proxmox Guest Agent API') {
       when { expression { params.APPLY } }
+
+      environment {
+        PM_API_TOKEN_ID     = credentials('PM_API_TOKEN_ID')
+        PM_API_TOKEN_SECRET = credentials('PM_API_TOKEN_SECRET')
+      }
 
       steps {
         dir(env.WORKSPACE) {
           sh '''
             set -euo pipefail
 
-            STATE="/tmp/terraform-${BUILD_NUMBER}.tfstate"
+            # Tools (jenkins/jenkins:lts is Debian-based)
+            if ! command -v jq >/dev/null 2>&1; then
+              apt-get update -y
+              apt-get install -y jq curl
+            fi
+
+            VMID="$(cat .vmid)"
+            AUTH="PVEAPIToken=${PM_API_TOKEN_ID}=${PM_API_TOKEN_SECRET}"
+
+            echo "Waiting for guest-agent IPv4 via Proxmox API (VMID=$VMID)..."
 
             VM_IP=""
             for i in $(seq 1 60); do
-              terraform apply -refresh-only -auto-approve -input=false -state="$STATE" >/dev/null 2>&1 || true
-              CANDIDATE=$(terraform output -state="$STATE" -raw vm_ipv4 2>/dev/null || true)
+              # QEMU guest agent network interfaces
+              RESP=$(curl -sk -H "Authorization: $AUTH" \
+                "${PVE_URL}/api2/json/nodes/${PVE_NODE}/qemu/${VMID}/agent/network-get-interfaces" || true)
 
-              if echo "$CANDIDATE" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$'; then
-                VM_IP="$CANDIDATE"
+              # Pull first non-loopback IPv4
+              VM_IP=$(echo "$RESP" | jq -r '
+                .data.result[]
+                | .["ip-addresses"][]
+                | select(.["ip-address-type"]=="ipv4")
+                | .["ip-address"]
+              ' 2>/dev/null | grep -Ev '^(127\.|169\.254\.)' | head -n 1 || true)
+
+              if echo "$VM_IP" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+                echo "Found VM IP: $VM_IP"
                 break
               fi
 
-              echo "Attempt $i/60 — waiting for IP..."
+              echo "Attempt $i/60 — no IP yet, sleeping..."
               sleep 5
             done
 
             if [ -z "$VM_IP" ]; then
-              echo "ERROR: Failed to retrieve VM IP"
-              terraform output -state="$STATE" || true
+              echo "ERROR: Could not retrieve VM IP from guest agent API."
+              echo "Last response:"
+              echo "$RESP" | head -c 2000 || true
               exit 1
             fi
-
-            echo "VM IP: $VM_IP"
 
             cat > inventory.ini <<EOF
 [proxmox_vms]
 $VM_IP ansible_user=mirage
 EOF
 
+            echo "Generated inventory.ini:"
             cat inventory.ini
           '''
         }
@@ -127,15 +150,9 @@ EOF
   }
 
   post {
-    success {
-      echo "VM successfully created and configured"
-    }
-    failure {
-      echo "Pipeline failed — check logs"
-    }
-    always {
-      archiveArtifacts artifacts: 'inventory.ini', allowEmptyArchive: true
-    }
+    success { echo 'VM successfully created + configured.' }
+    failure { echo 'Pipeline failed — check logs.' }
+    always  { archiveArtifacts artifacts: 'inventory.ini', allowEmptyArchive: true }
   }
 }
 
