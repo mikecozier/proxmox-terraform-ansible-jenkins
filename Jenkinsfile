@@ -72,17 +72,13 @@ pipeline {
           VMID="$(cat vmid.txt)"
           echo "Waiting for guest-agent IP for VMID=${VMID} ..."
 
-          # Token auth header format for Proxmox:
-          # Authorization: PVEAPIToken=<tokenid>=<secret>
           AUTH_HEADER="Authorization: PVEAPIToken=${PM_API_TOKEN_ID}=${PM_API_TOKEN_SECRET}"
 
           VM_IP=""
           for i in $(seq 1 60); do
-            # Query guest agent interfaces
             JSON="$(curl -sk -H "$AUTH_HEADER" \
               "${PM_API_URL}/nodes/${PM_NODE}/qemu/${VMID}/agent/network-get-interfaces" || true)"
 
-            # Extract first non-loopback, non-linklocal IPv4
             VM_IP="$(echo "$JSON" | jq -r '
               .data.result[]?.["ip-addresses"][]? |
               select(.["ip-address-type"]=="ipv4") |
@@ -120,13 +116,27 @@ EOF
     stage('Configure VM with Ansible') {
       when { expression { return params.APPLY } }
 
+      environment {
+        // Expose Vault unseal keys to the shell/ansible-playbook process
+        VAULT_UNSEAL_KEY_1 = credentials('vault-unseal-key-1')
+        VAULT_UNSEAL_KEY_2 = credentials('vault-unseal-key-2')
+        VAULT_UNSEAL_KEY_3 = credentials('vault-unseal-key-3')
+      }
+
       steps {
         sshagent(credentials: ['ansible_ssh']) {
           sh '''
             set -euo pipefail
             export ANSIBLE_HOST_KEY_CHECKING=False
 
+            # Make sure Ansible can read these env vars
+            test -n "$VAULT_UNSEAL_KEY_1"
+            test -n "$VAULT_UNSEAL_KEY_2"
+            test -n "$VAULT_UNSEAL_KEY_3"
+
             ansible -i inventory.ini proxmox_vms -m ping
+
+            # Your playbook should read the keys via lookup('env','VAULT_UNSEAL_KEY_1') etc
             ansible-playbook -i inventory.ini ansible/site.yml
           '''
         }

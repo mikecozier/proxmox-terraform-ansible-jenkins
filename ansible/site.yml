@@ -13,6 +13,11 @@
     vault_valid_principals: "mirage"
     vault_ttl: "168h"
 
+    # Vault unseal keys (pulled from Jenkins environment variables)
+    vault_unseal_key_1: "{{ lookup('env', 'VAULT_UNSEAL_KEY_1') }}"
+    vault_unseal_key_2: "{{ lookup('env', 'VAULT_UNSEAL_KEY_2') }}"
+    vault_unseal_key_3: "{{ lookup('env', 'VAULT_UNSEAL_KEY_3') }}"
+
     # --- VM SSH key + cert paths ---
     vm_user: "mirage"
     ssh_key_path: "/home/mirage/.ssh/id_ed25519"
@@ -28,6 +33,53 @@
       - openssh-client
 
   tasks:
+    # --- Vault unseal logic ---
+    - name: Check if Vault is sealed
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/sys/seal-status"
+        method: GET
+        return_content: true
+        status_code: 200
+      register: vault_seal_status
+      delegate_to: localhost
+
+    - name: Unseal Vault (if sealed)
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/sys/unseal"
+        method: POST
+        body_format: json
+        body:
+          key: "{{ vault_unseal_key_1 }}"
+        return_content: true
+        status_code: 200
+      when: vault_seal_status.json.sealed == true
+      delegate_to: localhost
+
+    - name: Unseal Vault (if still sealed with key 2)
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/sys/unseal"
+        method: POST
+        body_format: json
+        body:
+          key: "{{ vault_unseal_key_2 }}"
+        return_content: true
+        status_code: 200
+      when: vault_seal_status.json.sealed == true
+      delegate_to: localhost
+
+    - name: Unseal Vault (if still sealed with key 3)
+      ansible.builtin.uri:
+        url: "{{ vault_addr }}/v1/sys/unseal"
+        method: POST
+        body_format: json
+        body:
+          key: "{{ vault_unseal_key_3 }}"
+        return_content: true
+        status_code: 200
+      when: vault_seal_status.json.sealed == true
+      delegate_to: localhost
+
+    # --- Proceed with the rest of the tasks ---
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: true
