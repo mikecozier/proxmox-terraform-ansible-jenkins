@@ -50,31 +50,25 @@ pipeline {
       }
     }
 
-    // OPTIONAL: only runs if inventory/site.yml exist
-    stage('Configure with Ansible') {
-      when { expression { return params.APPLY } }
-      environment { ANSIBLE_HOST_KEY_CHECKING = 'False' }
-      steps {
-        sh '''
-          if [ ! -f inventory.ini ] || [ ! -f site.yml ]; then
-            echo "No inventory.ini or site.yml found — skipping Ansible."
-            exit 0
-          fi
-        '''
-        sshagent(credentials: ['ansible_ssh']) {
-          sh '''
-            if ! command -v ansible >/dev/null 2>&1; then
-              echo "Installing Ansible in Jenkins container…"
-              python3 -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
-              python3 -m pip install ansible
-            fi
-            ansible --version
-            ansible-playbook -i inventory.ini site.yml
-          '''
-        }
-      }
+stage('Configure with Ansible') {
+  when {
+    allOf {
+      expression { fileExists('inventory.ini') }
+      expression { fileExists('site.yml') }
+      expression { return params.APPLY }  // only after apply
     }
   }
+  environment { ANSIBLE_HOST_KEY_CHECKING = 'False' }
+  steps {
+    sshagent(credentials: ['ansible_ssh']) {
+      sh '''
+        set -e
+        ansible --version
+        ansible-playbook -i inventory.ini site.yml -v
+      '''
+    }
+  }
+}
 
   post {
     success { archiveArtifacts artifacts: 'plan.out', onlyIfSuccessful: true }
