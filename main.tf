@@ -69,6 +69,6 @@ resource "proxmox_vm_qemu" "vm-instance" {
     ipconfig0 = "ip=dhcp"
 
     # Optional: make apply finish fast (Ansible can wait for SSH)
-    define_connection_info     = true
-    additional_wait            = 30
+    define_connection_info     = false
+    additional_wait            = 0
 }
