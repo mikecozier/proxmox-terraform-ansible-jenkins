@@ -60,20 +60,22 @@
       become: false
       when: vault_seal_status.json.sealed | bool
       block:
-        - name: Submit unseal keys (up to 3)
+
+        - name: Submit unseal keys until Vault is unsealed
           ansible.builtin.uri:
             url: "{{ vault_addr }}/v1/sys/unseal"
             method: POST
             body_format: json
             body:
               key: "{{ item }}"
+            status_code: [200, 400]
             return_content: true
-            status_code: 200
           loop: "{{ vault_unseal_keys }}"
           loop_control:
             label: "unseal_key_{{ ansible_loop.index }}"
-          register: unseal_attempts
+          register: unseal_results
           no_log: true
+          failed_when: false
 
         - name: Re-check seal status after unseal attempts
           ansible.builtin.uri:
@@ -83,9 +85,9 @@
             status_code: 200
           register: vault_seal_status_after
 
-        - name: Fail if Vault is still sealed after 3 keys
+        - name: Fail if Vault is still sealed
           ansible.builtin.fail:
-            msg: "Vault is still sealed after applying 3 unseal keys."
+            msg: "Vault is still sealed after applying all unseal keys."
           when: vault_seal_status_after.json.sealed | bool
 
     # --- VM baseline tasks (run on the VM) ---
