@@ -38,7 +38,6 @@ pipeline {
           rm -rf .terraform terraform.tfstate terraform.tfstate.backup || true
           terraform init -input=false
 
-          # Export TF_VARs ONCE so all subsequent terraform commands see them
           export TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID"
           export TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET"
           export TF_VAR_ssh_pubkey="$SSH_PUBLIC_KEY"
@@ -49,9 +48,6 @@ pipeline {
           export TF_VAR_disk_size="$DISK_SIZE"
 
           terraform apply -input=false -auto-approve -state="$STATE"
-
-          echo "=== Refreshing state to populate outputs (guest agent IP) ==="
-          terraform apply -refresh-only -input=false -auto-approve -state="$STATE" || true
 
           echo "=== DEBUG: terraform output (from STATE) ==="
           terraform output -state="$STATE" || true
@@ -76,7 +72,6 @@ pipeline {
           VM_NAME_FINAL="${VM_NAME}-${BUILD_NUMBER}"
           STATE="/tmp/terraform-${BUILD_NUMBER}.tfstate"
 
-          # Same TF_VAR exports here too, since this stage is a NEW shell
           export TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID"
           export TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET"
           export TF_VAR_ssh_pubkey="$SSH_PUBLIC_KEY"
@@ -86,12 +81,14 @@ pipeline {
           export TF_VAR_cores="$CORES"
           export TF_VAR_disk_size="$DISK_SIZE"
 
+          # ✅ CRITICAL FIX: init again in this NEW shell/stage so outputs are loaded
+          terraform init -input=false
+
           echo "Waiting for vm_ipv4 to become a real IPv4 address..."
 
           VM_IP=""
           for i in $(seq 1 60); do
-            terraform apply -refresh-only -auto-approve -input=false -state="$STATE" >/dev/null 2>&1 || true
-            CANDIDATE=$(terraform output -state="$STATE" -raw vm_ipv4 2>/dev/null || true)
+            CANDIDATE="$(terraform output -state="$STATE" -raw vm_ipv4 2>/dev/null || true)"
 
             if echo "$CANDIDATE" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$'; then
               VM_IP="$CANDIDATE"
@@ -105,6 +102,7 @@ pipeline {
 
           if [ -z "$VM_IP" ]; then
             echo "ERROR: Could not get vm_ipv4 from Terraform state."
+            echo "State file: $STATE"
             terraform output -state="$STATE" || true
             exit 1
           fi
