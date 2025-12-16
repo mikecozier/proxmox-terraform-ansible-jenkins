@@ -3,13 +3,38 @@ pipeline {
   options { timestamps() }
 
   parameters {
-    string(name: 'VM_NAME', defaultValue: 'vm', description: 'VM name prefix')
+    string(
+      name: 'VM_NAME',
+      defaultValue: 'vm',
+      description: 'VM name prefix'
+    )
 
-    choice(name: 'CORES', choices: "1\n2\n4\n6\n8", description: 'Number of CPU cores')
-    choice(name: 'MEMORY', choices: "2048\n4096\n8192\n16384", description: 'Memory in MB')
+    // ✅ Dropdown: Memory
+    choice(
+      name: 'MEMORY',
+      choices: ['2048', '4096', '8192', '16384'],
+      description: 'Memory in MB'
+    )
 
-    booleanParam(name: 'APPLY', defaultValue: true, description: 'Create VM')
-    booleanParam(name: 'RUN_ANSIBLE', defaultValue: true, description: 'Run Ansible after Terraform')
+    // ✅ Dropdown: CPU cores
+    choice(
+      name: 'CORES',
+      choices: ['1', '2', '4', '6', '8'],
+      description: 'Number of CPU cores'
+    )
+
+    // ✅ Dropdown: Disk size
+    choice(
+      name: 'DISK_SIZE',
+      choices: ['20G', '50G', '100G', '200G'],
+      description: 'Disk size'
+    )
+
+    booleanParam(
+      name: 'APPLY',
+      defaultValue: true,
+      description: 'Create VM'
+    )
   }
 
   environment {
@@ -17,8 +42,7 @@ pipeline {
   }
 
   stages {
-
-    stage('Terraform Init & Apply') {
+    stage('Terraform Create VM') {
       when { expression { return params.APPLY } }
 
       environment {
@@ -37,13 +61,9 @@ pipeline {
           echo "Creating VM: ${VM_NAME_FINAL} (VMID: ${VMID})"
           echo "Specs: ${CORES} cores, ${MEMORY} MB RAM, ${DISK_SIZE} disk"
 
-          # Throwaway state so runs never replace prior VMs
           STATE="/tmp/terraform-${BUILD_NUMBER}.tfstate"
 
-          terraform -version
           terraform init -input=false
-          terraform fmt -check || true
-          terraform validate
 
           TF_VAR_pm_api_token_id="$PM_API_TOKEN_ID" \
           TF_VAR_pm_api_token_secret="$PM_API_TOKEN_SECRET" \
@@ -57,70 +77,14 @@ pipeline {
             -input=false \
             -auto-approve \
             -state="$STATE"
-
-          # Wait a bit for DHCP + guest agent/IP reporting (adjust if needed)
-          VM_IP=""
-          for i in $(seq 1 30); do
-            VM_IP="$(terraform output -raw -state="$STATE" vm_ip 2>/dev/null || true)"
-            if [ -n "$VM_IP" ]; then
-              break
-            fi
-            echo "Waiting for vm_ip... (${i}/30)"
-            sleep 5
-          done
-
-          if [ -z "$VM_IP" ]; then
-            echo "ERROR: vm_ip output is empty. (Guest agent not ready / no IP reported.)"
-            echo "Tip: ensure qemu-guest-agent is installed+enabled in the template and agent=1 in Terraform."
-            exit 1
-          fi
-
-          echo "VM_IP=$VM_IP" | tee vm_ip.env
-          echo "VM created at IP: $VM_IP"
-
-          # Generate Ansible inventory in the workspace
-          cat > inventory.ini <<EOF
-[all]
-$VM_IP ansible_user=mirage
-EOF
-
-          echo "----- inventory.ini -----"
-          cat inventory.ini
-          echo "-------------------------"
         '''
-      }
-    }
-
-    stage('Configure with Ansible') {
-      when {
-        allOf {
-          expression { return params.APPLY }
-          expression { return params.RUN_ANSIBLE }
-          expression { fileExists('site.yml') }
-          expression { fileExists('inventory.ini') }
-        }
-      }
-
-      environment {
-        ANSIBLE_HOST_KEY_CHECKING = 'False'
-      }
-
-      steps {
-        sshagent(credentials: ['ansible_ssh']) {
-          sh '''
-            set -e
-            ansible --version
-            ansible-playbook -i inventory.ini site.yml -v
-          '''
-        }
       }
     }
   }
 
   post {
-    success { echo 'Build succeeded.' }
-    failure { echo 'Build failed — check the console log above.' }
-    always  { archiveArtifacts artifacts: 'inventory.ini, vm_ip.env', allowEmptyArchive: true }
+    success { echo 'VM successfully created.' }
+    failure { echo 'VM creation failed — check logs.' }
   }
 }
 
