@@ -15,7 +15,7 @@ provider "proxmox" {
 }
 
 resource "proxmox_vm_qemu" "vm-instance" {
-    name                = "vm-instance"
+    name                = "vm-instance1"
     target_node         = "proxmox"
     clone               = "terraform-template"
     full_clone          = true    
