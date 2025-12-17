@@ -1,53 +1,56 @@
+# ssh_config.j2 (PUBLIC-SAFE TEMPLATE)
+
 Host mainserver
-  HostName 192.168.1.234
-  User mirage
-  IdentityFile ~/.ssh/id_ed25519
-  CertificateFile ~/.ssh/id_ed25519-cert
+  HostName {{ mainserver_host }}
+  User {{ ssh_user }}
+  IdentityFile {{ ssh_identity_file }}
+  CertificateFile {{ ssh_certificate_file }}
 
 Host vault
-  HostName 192.168.1.23
-  User mirage
-  IdentityFile ~/.ssh/id_ed25519
-  CertificateFile ~/.ssh/id_ed25519-cert
+  HostName {{ vault_host }}
+  User {{ ssh_user }}
+  IdentityFile {{ ssh_identity_file }}
+  CertificateFile {{ ssh_certificate_file }}
 
 Host ansible
-  HostName 192.168.1.253
-  User mirage
-  IdentityFile ~/.ssh/id_ed25519
-  CertificateFile ~/.ssh/id_ed25519-cert
+  HostName {{ ansible_host }}
+  User {{ ssh_user }}
+  IdentityFile {{ ssh_identity_file }}
+  CertificateFile {{ ssh_certificate_file }}
 
 Host server1
-  HostName 192.168.1.246
-  User mirage
-  IdentityFile ~/.ssh/id_ed25519
-  CertificateFile ~/.ssh/id_ed25519-cert
+  HostName {{ server1_host }}
+  User {{ ssh_user }}
+  IdentityFile {{ ssh_identity_file }}
+  CertificateFile {{ ssh_certificate_file }}
 
 Host server2
-  HostName 192.168.1.24
-  User mirage
-  IdentityFile ~/.ssh/id_ed25519
-  CertificateFile ~/.ssh/id_ed25519-cert
+  HostName {{ server2_host }}
+  User {{ ssh_user }}
+  IdentityFile {{ ssh_identity_file }}
+  CertificateFile {{ ssh_certificate_file }}
 
 Host server3
-  HostName 192.168.1.235
-  User mirage
-  IdentityFile ~/.ssh/id_ed25519
-  CertificateFile ~/.ssh/id_ed25519-cert
+  HostName {{ server3_host }}
+  User {{ ssh_user }}
+  IdentityFile {{ ssh_identity_file }}
+  CertificateFile {{ ssh_certificate_file }}
 
 Host torrent
-  HostName 192.168.1.240
-  User mirage
-  IdentityFile ~/.ssh/id_ed25519
-  CertificateFile ~/.ssh/id_ed25519-cert
+  HostName {{ torrent_host }}
+  User {{ ssh_user }}
+  IdentityFile {{ ssh_identity_file }}
+  CertificateFile {{ ssh_certificate_file }}
 
 Host proxmox
-  HostName 192.168.1.100
-  User mirage
-  IdentityFile ~/.ssh/id_ed25519
-  CertificateFile ~/.ssh/id_ed25519-cert
+  HostName {{ proxmox_host }}
+  User {{ ssh_user }}
+  IdentityFile {{ ssh_identity_file }}
+  CertificateFile {{ ssh_certificate_file }}
 
 Host database
-  HostName 192.168.1.238
-  User mirage
-  IdentityFile ~/.ssh/id_ed25519
-  CertificateFile ~/.ssh/id_ed25519-cert
+  HostName {{ database_host }}
+  User {{ ssh_user }}
+  IdentityFile {{ ssh_identity_file }}
+  CertificateFile {{ ssh_certificate_file }}
+

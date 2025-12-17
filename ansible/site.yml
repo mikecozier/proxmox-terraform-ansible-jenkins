@@ -1,31 +1,27 @@
 ---
-- name: Baseline + Vault-signed SSH cert + Node Exporter + Prometheus target update
+- name: Baseline + Vault-signed SSH cert + Node Exporter + Prometheus target update (sanitized)
   hosts: proxmox_vms
   become: true
   gather_facts: true
 
   vars:
     # ---------------------------
-    # Vault
+    # Vault (NO UNSEAL HERE)
     # ---------------------------
-    vault_addr: "http://192.168.1.23:8200"
-    vault_approle_mount: "approle"
-    vault_role_id_file: "/etc/vault/approle/role_id"
-    vault_secret_id_file: "/etc/vault/approle/secret_id"
+    vault_addr: "{{ lookup('env', 'VAULT_ADDR') | default('http://vault.service:8200', true) }}"
+    vault_approle_mount: "{{ lookup('env', 'VAULT_APPROLE_MOUNT') | default('approle', true) }}"
+    vault_sign_path: "{{ lookup('env', 'VAULT_SIGN_PATH') | default('ssh/sign/default', true) }}"
+    vault_valid_principals: "{{ lookup('env', 'VAULT_VALID_PRINCIPALS') | default('user', true) }}"
+    vault_ttl: "{{ lookup('env', 'VAULT_TTL') | default('168h', true) }}"
 
-    vault_sign_path: "ssh/sign/mirage"
-    vault_valid_principals: "mirage"
-    vault_ttl: "168h"
-
-    vault_unseal_keys:
-      - "{{ lookup('env', 'VAULT_UNSEAL_KEY_1') }}"
-      - "{{ lookup('env', 'VAULT_UNSEAL_KEY_2') }}"
-      - "{{ lookup('env', 'VAULT_UNSEAL_KEY_3') }}"
+    # AppRole creds should come from CI secrets/env, NOT from files in the repo or container FS
+    vault_role_id: "{{ lookup('env', 'VAULT_ROLE_ID') | default('', true) }}"
+    vault_secret_id: "{{ lookup('env', 'VAULT_SECRET_ID') | default('', true) }}"
 
     # ---------------------------
     # VM user / SSH cert paths
     # ---------------------------
-    vm_user: "mirage"
+    vm_user: "{{ lookup('env', 'VM_USER') | default('ubuntu', true) }}"
     ssh_key_path: "/home/{{ vm_user }}/.ssh/id_ed25519"
     ssh_pub_path: "/home/{{ vm_user }}/.ssh/id_ed25519.pub"
     ssh_cert_path: "/home/{{ vm_user }}/.ssh/id_ed25519-cert.pub"
@@ -45,7 +41,6 @@
     node_exporter_version: "latest"
     node_exporter_port: 9100
 
-    # Key fix for Ubuntu 24.04 / Python 3.12 (PEP 668): don't pip install docker system-wide
     docker_packages:
       - ca-certificates
       - curl
@@ -54,23 +49,24 @@
       - python3-docker
 
     # ---------------------------
-    # Prometheus update on mainserver
+    # Prometheus update on mainserver (file_sd)
     # ---------------------------
     enable_prometheus_target_update: true
+    mainserver_host: "{{ lookup('env', 'MAINSERVER_HOST') | default('mainserver', true) }}"
+    mainserver_user: "{{ lookup('env', 'MAINSERVER_USER') | default('ubuntu', true) }}"
+    mainserver_ssh_key: "{{ lookup('env', 'MAINSERVER_SSH_KEY') | default('~/.ssh/id_ed25519', true) }}"
 
-    mainserver_ip: "192.168.1.234"
-    mainserver_user: "mirage"
-    # Key must exist INSIDE Jenkins container (or on the control node running ansible-playbook)
-    mainserver_ssh_key: "/var/jenkins_home/.ssh/id_ed25519"
+    # file_sd target file (preferred)
+    prometheus_file_sd_dir: "{{ lookup('env', 'PROM_FILE_SD_DIR') | default('/etc/prometheus/file_sd', true) }}"
+    prometheus_node_targets_file: "{{ prometheus_file_sd_dir }}/node_exporter_targets.yml"
 
-    prometheus_config_path: "/home/mirage/docker/docker-stack-private/config/prometheus.yml"
-    prometheus_compose_dir: "/home/mirage/docker/docker-stack-private"
-    prometheus_service_name: "prometheus"
+    prometheus_compose_dir: "{{ lookup('env', 'PROM_COMPOSE_DIR') | default('/opt/monitoring', true) }}"
+    prometheus_service_name: "{{ lookup('env', 'PROM_SERVICE_NAME') | default('prometheus', true) }}"
 
   handlers:
     - name: Restart Prometheus on mainserver
       when: enable_prometheus_target_update | bool
-      delegate_to: "{{ mainserver_ip }}"
+      delegate_to: "{{ mainserver_host }}"
       become: true
       vars:
         ansible_user: "{{ mainserver_user }}"
@@ -84,66 +80,7 @@
 
   tasks:
     # ---------------------------
-    # Vault unseal (runs on Jenkins/control node)
-    # ---------------------------
-    - name: Fail fast if any unseal key env var is missing
-      delegate_to: localhost
-      become: false
-      ansible.builtin.assert:
-        that:
-          - vault_unseal_keys[0] | length > 0
-          - vault_unseal_keys[1] | length > 0
-          - vault_unseal_keys[2] | length > 0
-        fail_msg: "Missing one or more VAULT_UNSEAL_KEY_1/2/3 environment variables in Jenkins."
-
-    - name: Check if Vault is sealed
-      delegate_to: localhost
-      become: false
-      ansible.builtin.uri:
-        url: "{{ vault_addr }}/v1/sys/seal-status"
-        method: GET
-        return_content: true
-        status_code: 200
-      register: vault_seal_status
-
-    - name: Unseal Vault (only if sealed)
-      delegate_to: localhost
-      become: false
-      when: vault_seal_status.json.sealed | bool
-      block:
-        - name: Submit unseal keys (do not fail inside loop)
-          ansible.builtin.uri:
-            url: "{{ vault_addr }}/v1/sys/unseal"
-            method: POST
-            body_format: json
-            body:
-              key: "{{ item }}"
-            return_content: true
-            status_code: [200, 400, 403, 500, 503]
-            timeout: 10
-          loop: "{{ vault_unseal_keys }}"
-          loop_control:
-            label: "unseal_key_{{ ansible_loop.index }}"
-          register: unseal_results
-          no_log: true
-          failed_when: false
-          ignore_errors: true
-
-        - name: Final seal status check
-          ansible.builtin.uri:
-            url: "{{ vault_addr }}/v1/sys/seal-status"
-            method: GET
-            return_content: true
-            status_code: 200
-          register: vault_seal_status_after
-
-        - name: Fail if Vault is still sealed
-          ansible.builtin.fail:
-            msg: "Vault is still sealed after unseal attempts."
-          when: vault_seal_status_after.json.sealed | bool
-
-    # ---------------------------
-    # VM baseline (runs on VM)
+    # VM baseline
     # ---------------------------
     - name: Update apt cache
       ansible.builtin.apt:
@@ -162,9 +99,9 @@
         state: started
 
     # ---------------------------
-    # Node Exporter via Docker (runs on VM)
+    # Node Exporter via Docker
     # ---------------------------
-    - name: Install Docker prerequisites + python3-docker (apt)
+    - name: Install Docker prerequisites + python3-docker
       when: enable_node_exporter | bool
       ansible.builtin.apt:
         name: "{{ docker_packages }}"
@@ -207,9 +144,9 @@
           --web.listen-address=:{{ node_exporter_port }}
 
     # ---------------------------
-    # SSH keypair + cert paths (runs on VM)
+    # SSH keypair + cert paths (on VM)
     # ---------------------------
-    - name: Ensure ~/.ssh exists for {{ vm_user }}
+    - name: Ensure ~/.ssh exists
       ansible.builtin.file:
         path: "/home/{{ vm_user }}/.ssh"
         state: directory
@@ -217,7 +154,7 @@
         group: "{{ vm_user }}"
         mode: "0700"
 
-    - name: Ensure ed25519 keypair exists for {{ vm_user }}
+    - name: Ensure ed25519 keypair exists
       become_user: "{{ vm_user }}"
       community.crypto.openssh_keypair:
         path: "{{ ssh_key_path }}"
@@ -229,36 +166,19 @@
         src: "{{ ssh_pub_path }}"
       register: remote_pub
 
-    - name: Install SSH client config for mirage
-      become: true
-      ansible.builtin.template:
-        src: ssh_config.j2
-        dest: /home/mirage/.ssh/config
-        owner: mirage
-        group: mirage
-        mode: '0600'
-
-
     # ---------------------------
-    # Vault AppRole + signing (runs on Jenkins/control node)
+    # Vault AppRole login + signing (runs on control node)
     # ---------------------------
-    - name: Read role_id / secret_id from files in Jenkins container
-      delegate_to: localhost
-      become: false
-      ansible.builtin.set_fact:
-        vault_role_id: "{{ lookup('file', vault_role_id_file) | regex_replace('\\s+$', '') }}"
-        vault_secret_id: "{{ lookup('file', vault_secret_id_file) | regex_replace('\\s+$', '') }}"
-
-    - name: Fail fast if role_id/secret_id are empty
+    - name: Fail fast if Vault AppRole env vars missing
       delegate_to: localhost
       become: false
       ansible.builtin.assert:
         that:
           - vault_role_id | length > 0
           - vault_secret_id | length > 0
-        fail_msg: "role_id/secret_id are empty in Jenkins container."
+        fail_msg: "Missing VAULT_ROLE_ID / VAULT_SECRET_ID (set as CI secrets/env vars)."
 
-    - name: AppRole login to Vault (capture error body)
+    - name: AppRole login to Vault
       delegate_to: localhost
       become: false
       ansible.builtin.uri:
@@ -274,7 +194,7 @@
       no_log: true
       failed_when: false
 
-    - name: Fail with Vault error message if AppRole login failed
+    - name: Fail with Vault error message if login failed
       delegate_to: localhost
       become: false
       ansible.builtin.fail:
@@ -317,21 +237,41 @@
         mode: "0644"
 
     # ---------------------------
-    # Update Prometheus on mainserver (add this VM target)
-    # NOTE: This runs from Jenkins/control node to mainserver over SSH.
+    # Prometheus update on mainserver (file_sd)
     # ---------------------------
-    - name: Add this VM to Prometheus node_exporter targets on mainserver (idempotent)
+    - name: Ensure file_sd dir exists on mainserver
       when:
         - enable_node_exporter | bool
         - enable_prometheus_target_update | bool
-      delegate_to: "{{ mainserver_ip }}"
+      delegate_to: "{{ mainserver_host }}"
       become: true
       vars:
         ansible_user: "{{ mainserver_user }}"
         ansible_ssh_private_key_file: "{{ mainserver_ssh_key }}"
-      ansible.builtin.lineinfile:
-        path: "{{ prometheus_config_path }}"
-        insertafter: '^\s*# BEGIN ANSIBLE MANAGED NODE EXPORTER TARGETS'
-        line: "          - '{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:{{ node_exporter_port }}'  # {{ inventory_hostname }}"
-        state: present
+      ansible.builtin.file:
+        path: "{{ prometheus_file_sd_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Add this VM to file_sd node_exporter targets (idempotent)
+      when:
+        - enable_node_exporter | bool
+        - enable_prometheus_target_update | bool
+      delegate_to: "{{ mainserver_host }}"
+      become: true
+      vars:
+        ansible_user: "{{ mainserver_user }}"
+        ansible_ssh_private_key_file: "{{ mainserver_ssh_key }}"
+      ansible.builtin.blockinfile:
+        path: "{{ prometheus_node_targets_file }}"
+        create: true
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED TARGET {{ inventory_hostname }}"
+        block: |
+          - targets:
+              - "{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:{{ node_exporter_port }}"
+            labels:
+              job: "node"
+              instance: "{{ inventory_hostname }}"
       notify: Restart Prometheus on mainserver
+
