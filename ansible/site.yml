@@ -31,6 +31,27 @@
       - jq
       - openssh-client
 
+    # ---------------------------
+    # Node Exporter (Docker)
+    # ---------------------------
+    enable_node_exporter: true
+    node_exporter_image: "prom/node-exporter"
+    node_exporter_version: "latest"
+    node_exporter_port: 9100
+
+    # Packages needed for Docker + Ansible Docker modules on Ubuntu
+    docker_packages:
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - python3-pip
+      - python3-venv
+
+    # This makes community.docker modules work (uses Docker Engine API)
+    docker_python_packages:
+      - docker
+
   tasks:
     # ---------------------------
     # Vault unseal (runs in Jenkins)
@@ -122,6 +143,60 @@
         enabled: true
         state: started
 
+    # ---------------------------
+    # Node Exporter via Docker (runs on VM)
+    # ---------------------------
+    - name: Install Docker prerequisites (apt)
+      when: enable_node_exporter | bool
+      ansible.builtin.apt:
+        name: "{{ docker_packages }}"
+        state: present
+
+    - name: Install Docker Engine (get.docker.com)
+      when: enable_node_exporter | bool
+      ansible.builtin.shell: |
+        set -e
+        if ! command -v docker >/dev/null 2>&1; then
+          curl -fsSL https://get.docker.com | sh
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Ensure Docker service is running
+      when: enable_node_exporter | bool
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Install Python Docker SDK for Ansible
+      when: enable_node_exporter | bool
+      ansible.builtin.pip:
+        name: "{{ docker_python_packages }}"
+        state: present
+
+    - name: Run node_exporter container
+      when: enable_node_exporter | bool
+      community.docker.docker_container:
+        name: node_exporter
+        image: "{{ node_exporter_image }}:{{ node_exporter_version }}"
+        state: started
+        restart_policy: unless-stopped
+        network_mode: host
+        pid_mode: host
+        volumes:
+          - /proc:/host/proc:ro
+          - /sys:/host/sys:ro
+          - /:/rootfs:ro
+        command: >
+          --path.procfs=/host/proc
+          --path.sysfs=/host/sys
+          --path.rootfs=/rootfs
+          --web.listen-address=:{{ node_exporter_port }}
+
+    # ---------------------------
+    # SSH keypair + cert paths (runs on VM)
+    # ---------------------------
     - name: Ensure ~/.ssh exists for {{ vm_user }}
       ansible.builtin.file:
         path: "/home/{{ vm_user }}/.ssh"
