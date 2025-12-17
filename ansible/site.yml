@@ -6,7 +6,7 @@
 
   vars:
     vault_addr: "http://192.168.1.23:8200"
-    vault_approle_mount: "approle"   # change if you mounted approle under a different name
+    vault_approle_mount: "approle"
     vault_role_id_file: "/etc/vault/approle/role_id"
     vault_secret_id_file: "/etc/vault/approle/secret_id"
 
@@ -45,12 +45,7 @@
       - curl
       - gnupg
       - lsb-release
-      - python3-pip
-      - python3-venv
-
-    # This makes community.docker modules work (uses Docker Engine API)
-    docker_python_packages:
-      - docker
+      - python3-docker   # <-- key fix: replaces pip install docker
 
   tasks:
     # ---------------------------
@@ -99,18 +94,6 @@
           failed_when: false
           ignore_errors: true
 
-        - name: Unseal attempt summary (safe)
-          delegate_to: localhost
-          become: false
-          ansible.builtin.debug:
-            msg: >-
-              Unseal attempt {{ item.item | default('unknown') }} ->
-              status={{ item.status | default('n/a') }},
-              msg={{ item.msg | default('') }}
-          loop: "{{ unseal_results.results | default([]) }}"
-          loop_control:
-            label: "{{ item.item | default('unseal_key') }}"
-
         - name: Final seal status check
           ansible.builtin.uri:
             url: "{{ vault_addr }}/v1/sys/seal-status"
@@ -146,7 +129,7 @@
     # ---------------------------
     # Node Exporter via Docker (runs on VM)
     # ---------------------------
-    - name: Install Docker prerequisites (apt)
+    - name: Install Docker prerequisites + python3-docker (apt)
       when: enable_node_exporter | bool
       ansible.builtin.apt:
         name: "{{ docker_packages }}"
@@ -168,12 +151,6 @@
         name: docker
         state: started
         enabled: true
-
-    - name: Install Python Docker SDK for Ansible
-      when: enable_node_exporter | bool
-      ansible.builtin.pip:
-        name: "{{ docker_python_packages }}"
-        state: present
 
     - name: Run node_exporter container
       when: enable_node_exporter | bool
