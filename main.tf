@@ -34,7 +34,7 @@ resource "proxmox_vm_qemu" "vm-instance" {
 
     disk { 
       type = "disk" 
-      size = var.disk_size 
+      size = "50G" 
       storage = "local" 
       slot = "scsi0" 
       discard = true 

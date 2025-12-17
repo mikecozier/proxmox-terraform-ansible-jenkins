@@ -6,7 +6,6 @@ pipeline {
     string(name: 'VM_NAME', defaultValue: 'vm', description: 'VM name prefix')
     choice(name: 'MEMORY', choices: ['2048', '4096', '8192', '16384'], description: 'Memory (MB)')
     choice(name: 'CORES', choices: ['1', '2', '4', '6', '8'], description: 'CPU cores')
-    choice(name: 'DISK_SIZE', choices: ['20G', '50G', '100G', '200G'], description: 'Disk size')
     booleanParam(name: 'APPLY', defaultValue: true, description: 'Create + configure VM')
   }
 

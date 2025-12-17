@@ -38,10 +38,3 @@ variable "cores" {
   default     = 2
 }
 
-variable "disk_size" {
-  description = "Disk size (e.g. 20G, 50G, 100G)"
-  type        = string
-  default     = "50G"
-}
-
-
