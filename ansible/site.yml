@@ -322,6 +322,6 @@
       ansible.builtin.lineinfile:
         path: "{{ prometheus_config_path }}"
         insertafter: '^\s*# BEGIN ANSIBLE MANAGED NODE EXPORTER TARGETS'
-        line: "            - '{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:{{ node_exporter_port }}'  # {{ inventory_hostname }}"
+        line: "          - '{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:{{ node_exporter_port }}'  # {{ inventory_hostname }}"
         state: present
       notify: Restart Prometheus on mainserver
