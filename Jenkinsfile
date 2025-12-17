@@ -45,8 +45,7 @@ pipeline {
           export TF_VAR_vmid="$VMID"
           export TF_VAR_memory="$MEMORY"
           export TF_VAR_cores="$CORES"
-          export TF_VAR_disk_size="$DISK_SIZE"
-
+          export TF_VAR_disk_size="50G"
           terraform apply -auto-approve -input=false -state="$STATE"
 
           echo "$VMID" > vmid.txt
