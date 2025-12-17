@@ -229,6 +229,16 @@
         src: "{{ ssh_pub_path }}"
       register: remote_pub
 
+    - name: Install SSH client config for mirage
+      become: true
+      ansible.builtin.template:
+        src: ssh_config.j2
+        dest: /home/mirage/.ssh/config
+        owner: mirage
+        group: mirage
+        mode: '0600'
+
+
     # ---------------------------
     # Vault AppRole + signing (runs on Jenkins/control node)
     # ---------------------------
