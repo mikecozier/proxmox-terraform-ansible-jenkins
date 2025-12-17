@@ -319,33 +319,9 @@
       vars:
         ansible_user: "{{ mainserver_user }}"
         ansible_ssh_private_key_file: "{{ mainserver_ssh_key }}"
-        new_target_line: "          - '{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:{{ node_exporter_port }}'  # {{ inventory_hostname }}"
-      ansible.builtin.shell: |
-        set -euo pipefail
-        FILE="{{ prometheus_config_path }}"
-
-        # already present? exit clean
-        if grep -Fqx "{{ new_target_line }}" "$FILE"; then
-          exit 0
-        fi
-
-        # insert after "targets:" within the node_exporter job block
-        awk -v add="{{ new_target_line }}" '
-          BEGIN{in_node=0; inserted=0}
-          {
-            print $0
-            if ($0 ~ /job_name:\s*'\''node_exporter'\''/) in_node=1
-            if (in_node && $0 ~ /^\s*targets:\s*$/ && inserted==0) {
-              print add
-              inserted=1
-            }
-          }
-        ' "$FILE" > "${FILE}.tmp"
-
-        mv "${FILE}.tmp" "$FILE"
-      args:
-        executable: /bin/bash
-      register: prom_edit
-      changed_when: prom_edit.rc == 0
+      ansible.builtin.lineinfile:
+        path: "{{ prometheus_config_path }}"
+        insertafter: '^\s*# BEGIN ANSIBLE MANAGED NODE EXPORTER TARGETS'
+        line: "            - '{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:{{ node_exporter_port }}'  # {{ inventory_hostname }}"
+        state: present
       notify: Restart Prometheus on mainserver
-
