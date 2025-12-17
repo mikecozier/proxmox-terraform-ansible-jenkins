@@ -39,13 +39,31 @@
     node_exporter_version: "latest"
     node_exporter_port: 9100
 
-    # Packages needed for Docker + Ansible Docker modules on Ubuntu
     docker_packages:
       - ca-certificates
       - curl
       - gnupg
       - lsb-release
-      - python3-docker   # <-- key fix: replaces pip install docker
+      - python3-docker   # ✅ replaces pip install docker
+
+    # ---------------------------
+    # Prometheus update (mainserver)
+    # ---------------------------
+    mainserver_ip: "192.168.1.234"
+    prometheus_config_path: "/home/mirage/docker/docker-stack-private/config/prometheus.yml"
+    prometheus_compose_dir: "/home/mirage/docker/docker-stack-private"
+    prometheus_service_name: "prometheus"
+
+  handlers:
+    - name: Restart Prometheus on mainserver
+      delegate_to: "{{ mainserver_ip }}"
+      become: true
+      ansible.builtin.shell: |
+        set -e
+        cd {{ prometheus_compose_dir }}
+        docker compose restart {{ prometheus_service_name }}
+      args:
+        executable: /bin/bash
 
   tasks:
     # ---------------------------
@@ -270,4 +288,19 @@
         owner: "{{ vm_user }}"
         group: "{{ vm_user }}"
         mode: "0644"
+
+    # ---------------------------
+    # Update Prometheus on mainserver (add this VM target)
+    # ---------------------------
+    - name: Add this VM to Prometheus node_exporter targets on mainserver
+      when: enable_node_exporter | bool
+      delegate_to: "{{ mainserver_ip }}"
+      become: true
+      ansible.builtin.blockinfile:
+        path: "{{ prometheus_config_path }}"
+        marker: "# {mark} ANSIBLE MANAGED NODE EXPORTER TARGETS"
+        insertafter: "^\\s*# BEGIN ANSIBLE MANAGED NODE EXPORTER TARGETS\\s*$"
+        block: |
+          - '{{ ansible_host }}:{{ node_exporter_port }}'  # {{ inventory_hostname }}
+      notify: Restart Prometheus on mainserver
 
