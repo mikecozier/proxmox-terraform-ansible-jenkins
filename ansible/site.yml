@@ -1,10 +1,13 @@
 ---
-- name: Baseline + Vault-signed SSH cert for new Proxmox VMs
+- name: Baseline + Vault-signed SSH cert + Node Exporter + Prometheus target update
   hosts: proxmox_vms
   become: true
   gather_facts: true
 
   vars:
+    # ---------------------------
+    # Vault
+    # ---------------------------
     vault_addr: "http://192.168.1.23:8200"
     vault_approle_mount: "approle"
     vault_role_id_file: "/etc/vault/approle/role_id"
@@ -19,10 +22,13 @@
       - "{{ lookup('env', 'VAULT_UNSEAL_KEY_2') }}"
       - "{{ lookup('env', 'VAULT_UNSEAL_KEY_3') }}"
 
+    # ---------------------------
+    # VM user / SSH cert paths
+    # ---------------------------
     vm_user: "mirage"
-    ssh_key_path: "/home/mirage/.ssh/id_ed25519"
-    ssh_pub_path: "/home/mirage/.ssh/id_ed25519.pub"
-    ssh_cert_path: "/home/mirage/.ssh/id_ed25519-cert.pub"
+    ssh_key_path: "/home/{{ vm_user }}/.ssh/id_ed25519"
+    ssh_pub_path: "/home/{{ vm_user }}/.ssh/id_ed25519.pub"
+    ssh_cert_path: "/home/{{ vm_user }}/.ssh/id_ed25519-cert.pub"
 
     baseline_packages:
       - qemu-guest-agent
@@ -32,34 +38,45 @@
       - openssh-client
 
     # ---------------------------
-    # Node Exporter (Docker)
+    # Node Exporter (Docker on VM)
     # ---------------------------
     enable_node_exporter: true
     node_exporter_image: "prom/node-exporter"
     node_exporter_version: "latest"
     node_exporter_port: 9100
 
+    # Key fix for Ubuntu 24.04 / Python 3.12 (PEP 668): don't pip install docker system-wide
     docker_packages:
       - ca-certificates
       - curl
       - gnupg
       - lsb-release
-      - python3-docker   # ✅ replaces pip install docker
+      - python3-docker
 
     # ---------------------------
-    # Prometheus update (mainserver)
+    # Prometheus update on mainserver
     # ---------------------------
+    enable_prometheus_target_update: true
+
     mainserver_ip: "192.168.1.234"
+    mainserver_user: "mirage"
+    # Key must exist INSIDE Jenkins container (or on the control node running ansible-playbook)
+    mainserver_ssh_key: "/var/jenkins_home/.ssh/id_ed25519"
+
     prometheus_config_path: "/home/mirage/docker/docker-stack-private/config/prometheus.yml"
     prometheus_compose_dir: "/home/mirage/docker/docker-stack-private"
     prometheus_service_name: "prometheus"
 
   handlers:
     - name: Restart Prometheus on mainserver
+      when: enable_prometheus_target_update | bool
       delegate_to: "{{ mainserver_ip }}"
       become: true
+      vars:
+        ansible_user: "{{ mainserver_user }}"
+        ansible_ssh_private_key_file: "{{ mainserver_ssh_key }}"
       ansible.builtin.shell: |
-        set -e
+        set -euo pipefail
         cd {{ prometheus_compose_dir }}
         docker compose restart {{ prometheus_service_name }}
       args:
@@ -67,7 +84,7 @@
 
   tasks:
     # ---------------------------
-    # Vault unseal (runs in Jenkins)
+    # Vault unseal (runs on Jenkins/control node)
     # ---------------------------
     - name: Fail fast if any unseal key env var is missing
       delegate_to: localhost
@@ -153,10 +170,10 @@
         name: "{{ docker_packages }}"
         state: present
 
-    - name: Install Docker Engine (get.docker.com)
+    - name: Install Docker Engine (get.docker.com) if missing
       when: enable_node_exporter | bool
       ansible.builtin.shell: |
-        set -e
+        set -euo pipefail
         if ! command -v docker >/dev/null 2>&1; then
           curl -fsSL https://get.docker.com | sh
         fi
@@ -213,7 +230,7 @@
       register: remote_pub
 
     # ---------------------------
-    # Vault AppRole + signing (runs in Jenkins)
+    # Vault AppRole + signing (runs on Jenkins/control node)
     # ---------------------------
     - name: Read role_id / secret_id from files in Jenkins container
       delegate_to: localhost
@@ -291,16 +308,44 @@
 
     # ---------------------------
     # Update Prometheus on mainserver (add this VM target)
+    # NOTE: This runs from Jenkins/control node to mainserver over SSH.
     # ---------------------------
-    - name: Add this VM to Prometheus node_exporter targets on mainserver
-      when: enable_node_exporter | bool
+    - name: Add this VM to Prometheus node_exporter targets on mainserver (idempotent)
+      when:
+        - enable_node_exporter | bool
+        - enable_prometheus_target_update | bool
       delegate_to: "{{ mainserver_ip }}"
       become: true
-      ansible.builtin.blockinfile:
-        path: "{{ prometheus_config_path }}"
-        marker: "# {mark} ANSIBLE MANAGED NODE EXPORTER TARGETS"
-        insertafter: "^\\s*# BEGIN ANSIBLE MANAGED NODE EXPORTER TARGETS\\s*$"
-        block: |
-          - '{{ ansible_host }}:{{ node_exporter_port }}'  # {{ inventory_hostname }}
+      vars:
+        ansible_user: "{{ mainserver_user }}"
+        ansible_ssh_private_key_file: "{{ mainserver_ssh_key }}"
+        new_target_line: "          - '{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:{{ node_exporter_port }}'  # {{ inventory_hostname }}"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        FILE="{{ prometheus_config_path }}"
+
+        # already present? exit clean
+        if grep -Fqx "{{ new_target_line }}" "$FILE"; then
+          exit 0
+        fi
+
+        # insert after "targets:" within the node_exporter job block
+        awk -v add="{{ new_target_line }}" '
+          BEGIN{in_node=0; inserted=0}
+          {
+            print $0
+            if ($0 ~ /job_name:\s*'\''node_exporter'\''/) in_node=1
+            if (in_node && $0 ~ /^\s*targets:\s*$/ && inserted==0) {
+              print add
+              inserted=1
+            }
+          }
+        ' "$FILE" > "${FILE}.tmp"
+
+        mv "${FILE}.tmp" "$FILE"
+      args:
+        executable: /bin/bash
+      register: prom_edit
+      changed_when: prom_edit.rc == 0
       notify: Restart Prometheus on mainserver
 
